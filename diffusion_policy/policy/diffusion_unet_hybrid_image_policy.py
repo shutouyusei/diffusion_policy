@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
-from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
@@ -155,7 +154,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             fix_obs_steps=True,
             action_visible=False
         )
-        self.normalizer = LinearNormalizer()
         self.horizon = horizon
         self.obs_feature_dim = obs_feature_dim
         self.action_dim = action_dim
@@ -218,8 +216,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         result: must include "action" key
         """
         assert 'past_action' not in obs_dict # not implemented yet
-        # normalize input
-        nobs = self.normalizer.normalize(obs_dict)
+        nobs = obs_dict
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
         T = self.horizon
@@ -261,10 +258,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             local_cond=local_cond,
             global_cond=global_cond,
             **self.kwargs)
-        
-        # unnormalize prediction
-        naction_pred = nsample[...,:Da]
-        action_pred = self.normalizer['action'].unnormalize(naction_pred)
+        action_pred = nsample[...,:Da]
 
         # get action
         start = To - 1
@@ -278,14 +272,10 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         return result
 
     # ========= training  ============
-    def set_normalizer(self, normalizer: LinearNormalizer):
-        self.normalizer.load_state_dict(normalizer.state_dict())
-
     def compute_loss(self, batch):
-        # normalize input
         assert 'valid_mask' not in batch
-        nobs = self.normalizer.normalize(batch['obs'])
-        nactions = self.normalizer['action'].normalize(batch['action'])
+        nobs = batch['obs']
+        nactions = batch['action']
         batch_size = nactions.shape[0]
         horizon = nactions.shape[1]
 
